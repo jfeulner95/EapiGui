@@ -1,0 +1,56 @@
+# ---- Visual Studio ----------------------------------------------------------
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+*.aps
+*.ncb
+*.sdf
+*.opensdf
+ipch/
+*.ipch
+launchSettings.json
+
+# ---- Build output -----------------------------------------------------------
+x64/
+x86/
+Win32/
+ARM64/
+[Dd]ebug/
+[Rr]elease/
+bin/
+obj/
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.exp
+*.lib
+*.exe
+*.dll
+*.winmd
+*.pri
+*.tlog
+*.lastbuildstate
+*.log
+
+# ---- C++/WinRT / XAML generated sources --------------------------------------
+Generated Files/
+
+# ---- NuGet ------------------------------------------------------------------
+# Restored by Visual Studio or: msbuild -t:restore -p:RestorePackagesConfig=true
+packages/
+*.nupkg
+
+# ---- OS / Editor ------------------------------------------------------------
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+.vscode/
