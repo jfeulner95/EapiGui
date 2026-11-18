@@ -1,23 +1,23 @@
 # EapiGui
 
-WinUI 3 / C++/WinRT desktop tool (Windows only) that reads all information exposed by a
-PICMG **EAPI** library (Embedded API for COM Express, Qseven, SMARC modules) and shows it in a GUI.
-Values the hardware does not provide are shown as **"Not supported"**.
+WinUI 3 / C++/WinRT desktop tool (Windows only) for a PICMG **EAPI 1.0** library (Embedded API for
+COM Express, Qseven, SMARC modules). It reads all board information and can use every EAPI function,
+including the set/write functions. Values the hardware does not provide are shown as **"Not supported"**.
 
-## What is read
+## Pages
 
-| Section | EAPI functions |
+| Page | EAPI functions |
 |---|---|
-| EAPI Library | `EApiLibInitialize`, `EApiBoardGetValue` (spec / library / driver version) |
-| Board Information | `EApiBoardGetStringA` (manufacturer, name, revision, serial, BIOS, HW revision, platform) and `EApiBoardGetValue` (boot counter, running time, PNP ID, platform revision) |
-| Hardware Monitor | `EApiBoardGetValue` (CPU/chipset/system temperature, voltages, fans) |
-| Backlight | `EApiVgaGetBacklightEnable`, `EApiVgaGetBacklightBrightness` |
-| User Storage | `EApiStorageCap` |
-| I2C Buses | `EApiI2CGetBusCap` |
-| GPIO | `EApiGPIOGetDirectionCaps`, `EApiGPIOGetDirection`, `EApiGPIOGetLevel` |
-| Watchdog | `EApiWDogGetCap` |
+| Overview | `EApiLibInitialize`, `EApiBoardGetStringA`, `EApiBoardGetValue` (versions, board info, hardware monitor), plus the read-only state of all blocks below |
+| Backlight | `EApiVgaGet/SetBacklightEnable`, `EApiVgaGet/SetBacklightBrightness` |
+| GPIO | `EApiGPIOGetDirectionCaps`, `EApiGPIOGet/SetDirection`, `EApiGPIOGet/SetLevel` (bank IDs, or single-pin IDs 0-15 if no bank is supported) |
+| Watchdog | `EApiWDogGetCap`, `EApiWDogStart`, `EApiWDogTrigger`, `EApiWDogStop` |
+| Storage | `EApiStorageCap`, `EApiStorageAreaRead`, `EApiStorageAreaWrite` |
+| I2C | `EApiI2CGetBusCap`, `EApiI2CProbeDevice`, `EApiI2CReadTransfer`, `EApiI2CWriteTransfer`, `EApiI2CWriteReadRaw` |
 
-Read-only: the tool never writes GPIOs, storage, backlight or starts the watchdog.
+The Overview page never writes anything. On the other pages, GPIO and backlight changes are written
+when you change them / press **Apply**; storage writes, I2C writes and starting the watchdog ask for
+confirmation first. A started watchdog is **not** stopped when the tool closes.
 
 A value is shown as **Not supported** when
 - the function returns `EAPI_STATUS_UNSUPPORTED`, or
@@ -29,7 +29,7 @@ Every other error status is shown in red as `Error: <STATUS>`. Hover a value for
 
 The DLL is loaded at runtime (`LoadLibrary` + `GetProcAddress`), so no vendor header or `.lib` is needed.
 On start the tool tries `EAPI.dll`, `EApi_1.dll`, `EApi64.dll` via the normal DLL search path
-(exe folder, System32, `PATH`). If your vendor uses another name, enter the path or use **Browse...**.
+(exe folder, System32, `PATH`). If your vendor uses another name, use **File > Search for EAPI.dll...** (Ctrl+O).
 
 The bitness must match: the x64 build needs a 64-bit EAPI DLL, the x86 build a 32-bit one.
 
@@ -54,10 +54,18 @@ Only the vendor's EAPI driver/DLL must be present. Requires Windows 10 1809 or l
 
 ## Testing without hardware
 
-`tools/MockEapi/MockEapi.cpp` is a fake EAPI DLL with some features deliberately unsupported:
+`tools/MockEapi/MockEapi.cpp` is a fake EAPI DLL that keeps state (so set functions can be read back)
+and leaves some features deliberately unsupported. Build it in an x64 Developer Command Prompt and
+load it via **File > Search for EAPI.dll...**:
 
 ```bash
-cl /LD /EHsc /O2 MockEapi.cpp /Fe:EApi.dll
+cl /LD /EHsc /O2 tools\MockEapi\MockEapi.cpp /Fe:EApi.dll
 ```
 
-Build it in an x64 Developer Command Prompt and select it via **Browse...**.
+`tools/SelfTest/SelfTest.cpp` checks the backend (parsing, encodings, all set/get round trips) against
+the mock. Run from the repository root after building the mock:
+
+```bash
+cl /EHsc /std:c++20 /utf-8 /I EapiGui tools\SelfTest\SelfTest.cpp EapiGui\EapiLibrary.cpp EapiGui\EapiReader.cpp user32.lib /Fe:SelfTest.exe
+SelfTest.exe
+```

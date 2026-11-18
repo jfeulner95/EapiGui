@@ -128,8 +128,13 @@
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="EapiLibrary.cpp" />
-    <ClCompile Include="EapiReader.cpp" />
+    <!-- Backend has no WinRT dependency, so tools/SelfTest can compile it standalone. -->
+    <ClCompile Include="EapiLibrary.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="EapiReader.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="App.xaml.cpp">
       <DependentUpon>App.xaml</DependentUpon>
     </ClCompile>

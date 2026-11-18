@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d"
-    Title="EAPI Information">
+    Title="EAPI Tool">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -18,17 +18,31 @@
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="CornerRadius" Value="{StaticResource OverlayCornerRadius}" />
                 <Setter Property="Padding" Value="20,16,20,16" />
+            </Style>
+            <Style x:Key="PageStyle" TargetType="StackPanel">
+                <Setter Property="Spacing" Value="12" />
+                <Setter Property="Padding" Value="32,24,32,32" />
+                <Setter Property="MaxWidth" Value="1100" />
+            </Style>
+            <Style x:Key="PageTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+                <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
             <Style x:Key="SectionTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyStrongTextBlockStyle}">
                 <Setter Property="FontSize" Value="16" />
                 <Setter Property="Margin" Value="0,0,0,10" />
             </Style>
+            <Style x:Key="HintTextStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="IsTextSelectionEnabled" Value="True" />
+            </Style>
             <Style x:Key="NameTextStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
                 <Setter Property="Margin" Value="0,4,16,4" />
                 <Setter Property="TextWrapping" Value="Wrap" />
+                <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
             <Style x:Key="ValueTextStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
                 <Setter Property="Margin" Value="0,4,0,4" />
@@ -47,6 +61,16 @@
                 <Setter Property="IsTextSelectionEnabled" Value="True" />
                 <Setter Property="TextWrapping" Value="Wrap" />
             </Style>
+            <Style x:Key="OutputBoxStyle" TargetType="TextBox">
+                <Setter Property="IsReadOnly" Value="True" />
+                <Setter Property="AcceptsReturn" Value="True" />
+                <Setter Property="TextWrapping" Value="NoWrap" />
+                <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+                <Setter Property="MinHeight" Value="120" />
+                <Setter Property="MaxHeight" Value="360" />
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+                <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            </Style>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -55,40 +79,248 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Header: library selection and actions -->
-        <StackPanel Grid.Row="0" Padding="24,20,24,12" Spacing="12">
-            <TextBlock Text="EAPI Information" Style="{StaticResource TitleTextBlockStyle}" />
-            <Grid ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBox x:Name="DllPathBox"
-                         Grid.Column="0"
-                         PlaceholderText="EAPI DLL path (empty = search EAPI.dll, EApi_1.dll, EApi64.dll)"
-                         KeyDown="DllPathBox_KeyDown" />
-                <Button Grid.Column="1" Content="Browse..." Click="BrowseButton_Click" />
-                <Button x:Name="LoadButton" Grid.Column="2" Content="Load" Click="LoadButton_Click"
-                        Style="{StaticResource AccentButtonStyle}" />
-                <Button x:Name="CopyButton" Grid.Column="3" Content="Copy as text" Click="CopyButton_Click"
-                        IsEnabled="False" />
+        <TitleBar x:Name="AppTitleBar" Title="EAPI Tool" Subtitle="No library loaded">
+            <TitleBar.IconSource>
+                <FontIconSource Glyph="&#xE950;" />
+            </TitleBar.IconSource>
+            <TitleBar.RightHeader>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <ProgressRing x:Name="BusyRing" IsActive="False" Width="16" Height="16" />
+                    <TextBlock x:Name="LastUpdateText" Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </TitleBar.RightHeader>
+        </TitleBar>
+
+        <MenuBar Grid.Row="1" Margin="4,0,0,0">
+            <MenuBarItem Title="File">
+                <MenuFlyoutItem Text="Search for EAPI.dll..." Click="SearchDll_Click">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8E5;" /></MenuFlyoutItem.Icon>
+                    <MenuFlyoutItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="O" />
+                    </MenuFlyoutItem.KeyboardAccelerators>
+                </MenuFlyoutItem>
+                <MenuFlyoutItem Text="Load default EAPI.dll" Click="LoadDefault_Click">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE896;" /></MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
+                <MenuFlyoutItem x:Name="CopyMenuItem" Text="Copy overview as text" Click="Copy_Click" IsEnabled="False">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE8C8;" /></MenuFlyoutItem.Icon>
+                    <MenuFlyoutItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control,Shift" Key="C" />
+                    </MenuFlyoutItem.KeyboardAccelerators>
+                </MenuFlyoutItem>
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Exit" Click="Exit_Click" />
+            </MenuBarItem>
+            <MenuBarItem Title="View">
+                <MenuFlyoutItem x:Name="RefreshMenuItem" Text="Refresh" Click="Refresh_Click" IsEnabled="False">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
+                    <MenuFlyoutItem.KeyboardAccelerators>
+                        <KeyboardAccelerator Key="F5" />
+                    </MenuFlyoutItem.KeyboardAccelerators>
+                </MenuFlyoutItem>
+                <ToggleMenuFlyoutItem x:Name="AutoRefreshMenuItem" Text="Auto refresh overview (2 s)"
+                                      Click="AutoRefresh_Click" IsEnabled="False" />
+            </MenuBarItem>
+        </MenuBar>
+
+        <NavigationView x:Name="NavView" Grid.Row="2" PaneDisplayMode="Left" OpenPaneLength="200"
+                        IsSettingsVisible="False" IsBackButtonVisible="Collapsed"
+                        SelectionChanged="NavView_SelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Overview" Tag="Overview">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE946;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Backlight" Tag="Backlight">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE706;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="GPIO" Tag="Gpio">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE964;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Watchdog" Tag="Watchdog">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE916;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="Storage" Tag="Storage">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xEDA2;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="I2C" Tag="I2C">
+                    <NavigationViewItem.Icon><FontIcon Glyph="&#xE71B;" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <InfoBar x:Name="StatusInfoBar" Margin="32,16,32,0" MaxWidth="1036" IsOpen="False" IsClosable="True" />
+
+                <!-- Pages: the Tag matches the NavigationViewItem Tag. -->
+                <Grid x:Name="PagesHost" Grid.Row="1">
+
+                    <!-- Overview -->
+                    <ScrollViewer Tag="Overview">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="Overview" Style="{StaticResource PageTitleStyle}" />
+                            <Border x:Name="EmptyState" Style="{StaticResource CardStyle}" Padding="32">
+                                <StackPanel Spacing="12" HorizontalAlignment="Center">
+                                    <FontIcon Glyph="&#xE950;" FontSize="40" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    <TextBlock Text="No EAPI library loaded" Style="{StaticResource SubtitleTextBlockStyle}" HorizontalAlignment="Center" />
+                                    <TextBlock Style="{StaticResource HintTextStyle}" HorizontalTextAlignment="Center" MaxWidth="460"
+                                               Text="Select the vendor's EAPI DLL. The 64-bit build needs a 64-bit DLL." />
+                                    <Button Content="Search for EAPI.dll..." Style="{StaticResource AccentButtonStyle}"
+                                            HorizontalAlignment="Center" Click="SearchDll_Click" />
+                                </StackPanel>
+                            </Border>
+                            <StackPanel x:Name="SectionsPanel" Spacing="12" />
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Backlight -->
+                    <ScrollViewer Tag="Backlight" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="Backlight" Style="{StaticResource PageTitleStyle}" />
+                            <Border Style="{StaticResource CardStyle}">
+                                <StackPanel Spacing="16">
+                                    <ComboBox x:Name="BacklightIdBox" Header="Backlight" SelectedIndex="0" MinWidth="200"
+                                              SelectionChanged="BacklightIdBox_SelectionChanged">
+                                        <x:String>Backlight 1</x:String>
+                                        <x:String>Backlight 2</x:String>
+                                        <x:String>Backlight 3</x:String>
+                                    </ComboBox>
+                                    <ToggleSwitch x:Name="BacklightEnableSwitch" Header="Backlight enabled" OnContent="On" OffContent="Off" />
+                                    <Slider x:Name="BacklightSlider" Header="Brightness (0 - 255)" Minimum="0" Maximum="255"
+                                            StepFrequency="1" MaxWidth="420" HorizontalAlignment="Left" Width="420" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Read" Click="BacklightRead_Click" />
+                                        <Button Content="Apply" Style="{StaticResource AccentButtonStyle}" Click="BacklightApply_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- GPIO -->
+                    <ScrollViewer Tag="Gpio" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="GPIO" Style="{StaticResource PageTitleStyle}" />
+                            <Border Style="{StaticResource CardStyle}">
+                                <StackPanel Spacing="12">
+                                    <Grid>
+                                        <TextBlock Style="{StaticResource HintTextStyle}" VerticalAlignment="Center"
+                                                   Text="Changes are written immediately. Level can only be set on outputs." />
+                                        <Button HorizontalAlignment="Right" Click="GpioRefresh_Click">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                                                <TextBlock Text="Refresh" />
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+                                    <Grid x:Name="GpioGrid" ColumnSpacing="16" RowSpacing="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Watchdog -->
+                    <ScrollViewer Tag="Watchdog" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="Watchdog" Style="{StaticResource PageTitleStyle}" />
+                            <Border Style="{StaticResource CardStyle}">
+                                <StackPanel Spacing="16">
+                                    <TextBlock x:Name="WatchdogCapsText" Style="{StaticResource HintTextStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <NumberBox x:Name="WatchdogDelayBox" Header="Delay (ms)" Value="0" Minimum="0" Width="160"
+                                                   SpinButtonPlacementMode="Compact" />
+                                        <NumberBox x:Name="WatchdogEventBox" Header="Event timeout (ms)" Value="0" Minimum="0" Width="160"
+                                                   SpinButtonPlacementMode="Compact" />
+                                        <NumberBox x:Name="WatchdogResetBox" Header="Reset timeout (ms)" Value="10000" Minimum="0" Width="160"
+                                                   SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <InfoBar Severity="Warning" IsOpen="True" IsClosable="False"
+                                             Message="A started watchdog resets the system unless it is triggered or stopped in time." />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Start" Style="{StaticResource AccentButtonStyle}" Click="WatchdogStart_Click" />
+                                        <Button Content="Trigger" Click="WatchdogTrigger_Click" />
+                                        <Button Content="Stop" Click="WatchdogStop_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- Storage -->
+                    <ScrollViewer Tag="Storage" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="User Storage" Style="{StaticResource PageTitleStyle}" />
+                            <Border Style="{StaticResource CardStyle}">
+                                <StackPanel Spacing="16">
+                                    <TextBlock x:Name="StorageCapsText" Style="{StaticResource HintTextStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <NumberBox x:Name="StorageOffsetBox" Header="Offset (bytes)" Value="0" Minimum="0" Width="160"
+                                                   SpinButtonPlacementMode="Compact" />
+                                        <NumberBox x:Name="StorageLengthBox" Header="Read length (bytes)" Value="64" Minimum="1" Maximum="65536"
+                                                   Width="160" SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <Button Content="Read" Click="StorageRead_Click" />
+                                    <TextBox x:Name="StorageOutputBox" Header="Read result" Style="{StaticResource OutputBoxStyle}" />
+                                    <TextBox x:Name="StorageWriteBox" Header="Data to write at offset (hex bytes, e.g. 01 02 FF)" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                                    <Button Content="Write" Click="StorageWrite_Click" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- I2C -->
+                    <ScrollViewer Tag="I2C" Visibility="Collapsed">
+                        <StackPanel Style="{StaticResource PageStyle}">
+                            <TextBlock Text="I2C" Style="{StaticResource PageTitleStyle}" />
+                            <Border Style="{StaticResource CardStyle}">
+                                <StackPanel Spacing="16">
+                                    <TextBlock x:Name="I2CCapsText" Style="{StaticResource HintTextStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <ComboBox x:Name="I2CBusBox" Header="Bus" SelectedIndex="0" MinWidth="160">
+                                            <x:String>External I2C</x:String>
+                                            <x:String>LVDS 1 (DDC)</x:String>
+                                            <x:String>LVDS 2 (DDC)</x:String>
+                                        </ComboBox>
+                                        <TextBox x:Name="I2CAddressBox" Header="Device address (hex)" Text="50" Width="160" />
+                                        <CheckBox x:Name="I2CTenBitCheck" Content="10-bit address" VerticalAlignment="Bottom" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <ComboBox x:Name="I2CCmdTypeBox" Header="Command" SelectedIndex="1" MinWidth="160">
+                                            <x:String>None</x:String>
+                                            <x:String>Standard (8-bit)</x:String>
+                                            <x:String>Extended (16-bit)</x:String>
+                                        </ComboBox>
+                                        <TextBox x:Name="I2CCmdBox" Header="Command / register (hex)" Text="00" Width="160" />
+                                        <NumberBox x:Name="I2CReadLengthBox" Header="Read length (bytes)" Value="16" Minimum="0" Maximum="65536"
+                                                   Width="160" SpinButtonPlacementMode="Compact" />
+                                    </StackPanel>
+                                    <TextBox x:Name="I2CWriteBox" Header="Data to write (hex bytes)"
+                                             AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="Probe" Click="I2CProbe_Click" />
+                                        <Button Content="Read" Style="{StaticResource AccentButtonStyle}" Click="I2CRead_Click" />
+                                        <Button Content="Write" Click="I2CWrite_Click" />
+                                        <Button Content="Write + read (raw)" Click="I2CWriteRead_Click"
+                                                ToolTipService.ToolTip="EApiI2CWriteReadRaw: writes the data bytes, then reads 'Read length' bytes. Ignores the command." />
+                                    </StackPanel>
+                                    <TextBox x:Name="I2COutputBox" Header="Read result" Style="{StaticResource OutputBoxStyle}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
             </Grid>
-            <StackPanel Orientation="Horizontal" Spacing="16">
-                <ToggleSwitch x:Name="AutoRefreshSwitch" Header="Auto refresh (2 s)" OnContent="On" OffContent="Off"
-                              Toggled="AutoRefreshSwitch_Toggled" IsEnabled="False" />
-                <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" VerticalAlignment="Bottom"
-                              Margin="0,0,0,10" />
-                <TextBlock x:Name="LastUpdateText" VerticalAlignment="Bottom" Margin="0,0,0,12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
-        </StackPanel>
-
-        <InfoBar x:Name="StatusInfoBar" Grid.Row="1" Margin="24,0,24,12" IsOpen="False" IsClosable="True" />
-
-        <ScrollViewer Grid.Row="2" Padding="24,0,24,24">
-            <StackPanel x:Name="SectionsPanel" Spacing="12" Margin="0,0,0,24" MaxWidth="1100" HorizontalAlignment="Stretch" />
-        </ScrollViewer>
+        </NavigationView>
     </Grid>
 </Window>

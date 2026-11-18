@@ -1,4 +1,3 @@
-#include "pch.h"
 #include "EapiLibrary.h"
 #include "EapiReader.h"
 
@@ -64,7 +63,7 @@ namespace eapi
                 return true;
             tried += (tried.empty() ? L"" : L", ") + name;
         }
-        error = L"No EAPI library found (tried " + tried + L"). Enter the path of the vendor's EAPI DLL.";
+        error = L"No EAPI library found (tried " + tried + L"). Select the vendor's EAPI DLL.";
         return false;
     }
 
@@ -99,17 +98,32 @@ namespace eapi
         m_module = module;
         m_path = ModulePath(module);
         m_initStatus = status;
-        m_libUnInitialize           = Resolve<PfnLibUnInitialize>(module, "EApiLibUnInitialize");
-        BoardGetStringA             = Resolve<PfnBoardGetStringA>(module, "EApiBoardGetStringA");
-        BoardGetValue               = Resolve<PfnBoardGetValue>(module, "EApiBoardGetValue");
-        VgaGetBacklightEnable       = Resolve<PfnVgaGetBacklightEnable>(module, "EApiVgaGetBacklightEnable");
-        VgaGetBacklightBrightness   = Resolve<PfnVgaGetBacklightBrightness>(module, "EApiVgaGetBacklightBrightness");
-        StorageCap                  = Resolve<PfnStorageCap>(module, "EApiStorageCap");
-        I2CGetBusCap                = Resolve<PfnI2CGetBusCap>(module, "EApiI2CGetBusCap");
-        GPIOGetDirectionCaps        = Resolve<PfnGPIOGetDirectionCaps>(module, "EApiGPIOGetDirectionCaps");
-        GPIOGetDirection            = Resolve<PfnGPIOGetDirection>(module, "EApiGPIOGetDirection");
-        GPIOGetLevel                = Resolve<PfnGPIOGetLevel>(module, "EApiGPIOGetLevel");
-        WDogGetCap                  = Resolve<PfnWDogGetCap>(module, "EApiWDogGetCap");
+#define EAPI_RESOLVE(name) name = Resolve<decltype(name)>(module, "EApi" #name)
+        EAPI_RESOLVE(LibUnInitialize);
+        EAPI_RESOLVE(BoardGetStringA);
+        EAPI_RESOLVE(BoardGetValue);
+        EAPI_RESOLVE(VgaGetBacklightEnable);
+        EAPI_RESOLVE(VgaSetBacklightEnable);
+        EAPI_RESOLVE(VgaGetBacklightBrightness);
+        EAPI_RESOLVE(VgaSetBacklightBrightness);
+        EAPI_RESOLVE(StorageCap);
+        EAPI_RESOLVE(StorageAreaRead);
+        EAPI_RESOLVE(StorageAreaWrite);
+        EAPI_RESOLVE(I2CGetBusCap);
+        EAPI_RESOLVE(I2CWriteReadRaw);
+        EAPI_RESOLVE(I2CReadTransfer);
+        EAPI_RESOLVE(I2CWriteTransfer);
+        EAPI_RESOLVE(I2CProbeDevice);
+        EAPI_RESOLVE(WDogGetCap);
+        EAPI_RESOLVE(WDogStart);
+        EAPI_RESOLVE(WDogTrigger);
+        EAPI_RESOLVE(WDogStop);
+        EAPI_RESOLVE(GPIOGetDirectionCaps);
+        EAPI_RESOLVE(GPIOGetDirection);
+        EAPI_RESOLVE(GPIOSetDirection);
+        EAPI_RESOLVE(GPIOGetLevel);
+        EAPI_RESOLVE(GPIOSetLevel);
+#undef EAPI_RESOLVE
         return true;
     }
 
@@ -118,27 +132,13 @@ namespace eapi
         if (!m_module)
             return;
         // Only uninitialize what we initialized ourselves.
-        if (m_libUnInitialize && m_initStatus == EAPI_STATUS_SUCCESS)
-            m_libUnInitialize();
+        if (LibUnInitialize && m_initStatus == EAPI_STATUS_SUCCESS)
+            LibUnInitialize();
         ::FreeLibrary(m_module);
         m_module = nullptr;
         m_path.clear();
         m_initStatus = EAPI_STATUS_NOT_INITIALIZED;
-        ResetPointers();
+        static_cast<Functions&>(*this) = {};
     }
 
-    void Library::ResetPointers() noexcept
-    {
-        m_libUnInitialize = nullptr;
-        BoardGetStringA = nullptr;
-        BoardGetValue = nullptr;
-        VgaGetBacklightEnable = nullptr;
-        VgaGetBacklightBrightness = nullptr;
-        StorageCap = nullptr;
-        I2CGetBusCap = nullptr;
-        GPIOGetDirectionCaps = nullptr;
-        GPIOGetDirection = nullptr;
-        GPIOGetLevel = nullptr;
-        WDogGetCap = nullptr;
-    }
 }

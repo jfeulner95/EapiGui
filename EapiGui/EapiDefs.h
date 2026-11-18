@@ -1,8 +1,7 @@
 #pragma once
 // Constants and function signatures of the PICMG EAPI 1.0 specification
 // (Embedded Application Programming Interface, COM Express / Qseven / SMARC).
-// Only the subset read by this tool is declared here; the vendor DLL is loaded
-// at runtime, so no vendor header or import library is required.
+// The vendor DLL is loaded at runtime, so no vendor header or import library is required.
 
 #include <cstdint>
 
@@ -64,18 +63,32 @@ namespace eapi
     constexpr Id ID_HWMON_FAN_CPU         = 0x22000; // RPM
     constexpr Id ID_HWMON_FAN_SYSTEM      = 0x22001;
 
-    // ---- Other functional blocks --------------------------------------------
+    // ---- Backlight ----------------------------------------------------------
     constexpr Id ID_BACKLIGHT_1 = 0;
     constexpr Id ID_BACKLIGHT_2 = 1;
     constexpr Id ID_BACKLIGHT_3 = 2;
+    constexpr std::uint32_t BACKLIGHT_SET_ON  = 0; // yes, ON is 0 in the spec
+    constexpr std::uint32_t BACKLIGHT_SET_OFF = 0xFFFFFFFF;
+    constexpr std::uint32_t BACKLIGHT_BRIGHTEST = 255;
 
+    // ---- Storage ------------------------------------------------------------
     constexpr Id ID_STORAGE_STD = 0;
 
+    // ---- I2C ----------------------------------------------------------------
     constexpr Id ID_I2C_EXTERNAL = 0;
     constexpr Id ID_I2C_LVDS_1   = 1;
     constexpr Id ID_I2C_LVDS_2   = 2;
 
+    constexpr std::uint32_t I2C_NO_CMD = 1u << 30;
+    constexpr std::uint32_t I2CEncode7BitAddr(std::uint32_t a) { return (a & 0x7F) << 1; }
+    constexpr std::uint32_t I2CEncode10BitAddr(std::uint32_t a) { return (a & 0xFF) | ((a & 0x300) << 1) | 0xF000; }
+    constexpr std::uint32_t I2CEncodeStdCmd(std::uint32_t c) { return c & 0xFF; }
+    constexpr std::uint32_t I2CEncodeExtCmd(std::uint32_t c) { return (c & 0xFFFF) | (2u << 30); }
+
+    // ---- GPIO ---------------------------------------------------------------
+    // IDs 0..15 address single pins (bitmask bit 0 selects the pin); bank IDs address 32 pins.
     constexpr Id GpioBankId(std::uint32_t bank) { return 0x10000u | bank; }
+    constexpr std::uint32_t GPIO_INPUT = 1; // direction bit: 1 = input, 0 = output
 
     // ---- Helpers --------------------------------------------------------------
     // Version encoding: VV.RR.BBBB  (bits 31..24 version, 23..16 revision, 15..0 build)
@@ -90,16 +103,31 @@ namespace eapi
 #define EAPI_CALLTYPE
 #endif
 
-    using PfnLibInitialize        = Status(EAPI_CALLTYPE*)();
-    using PfnLibUnInitialize      = Status(EAPI_CALLTYPE*)();
-    using PfnBoardGetStringA      = Status(EAPI_CALLTYPE*)(Id, char*, std::uint32_t*);
-    using PfnBoardGetValue        = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*);
-    using PfnVgaGetBacklightEnable     = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*);
-    using PfnVgaGetBacklightBrightness = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*);
-    using PfnStorageCap           = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*, std::uint32_t*);
-    using PfnI2CGetBusCap         = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*);
-    using PfnGPIOGetDirectionCaps = Status(EAPI_CALLTYPE*)(Id, std::uint32_t*, std::uint32_t*);
-    using PfnGPIOGetDirection     = Status(EAPI_CALLTYPE*)(Id, std::uint32_t, std::uint32_t*);
-    using PfnGPIOGetLevel         = Status(EAPI_CALLTYPE*)(Id, std::uint32_t, std::uint32_t*);
-    using PfnWDogGetCap           = Status(EAPI_CALLTYPE*)(std::uint32_t*, std::uint32_t*, std::uint32_t*);
+    using U32 = std::uint32_t;
+    using PfnLibInitialize              = Status(EAPI_CALLTYPE*)();
+    using PfnLibUnInitialize            = Status(EAPI_CALLTYPE*)();
+    using PfnBoardGetStringA            = Status(EAPI_CALLTYPE*)(Id, char*, U32*);
+    using PfnBoardGetValue              = Status(EAPI_CALLTYPE*)(Id, U32*);
+    using PfnVgaGetBacklightEnable      = Status(EAPI_CALLTYPE*)(Id, U32*);
+    using PfnVgaSetBacklightEnable      = Status(EAPI_CALLTYPE*)(Id, U32);
+    using PfnVgaGetBacklightBrightness  = Status(EAPI_CALLTYPE*)(Id, U32*);
+    using PfnVgaSetBacklightBrightness  = Status(EAPI_CALLTYPE*)(Id, U32);
+    using PfnStorageCap                 = Status(EAPI_CALLTYPE*)(Id, U32*, U32*);
+    using PfnStorageAreaRead            = Status(EAPI_CALLTYPE*)(Id, U32 offset, void* buffer, U32 bufLen, U32 byteCnt);
+    using PfnStorageAreaWrite           = Status(EAPI_CALLTYPE*)(Id, U32 offset, void* buffer, U32 byteCnt);
+    using PfnI2CGetBusCap               = Status(EAPI_CALLTYPE*)(Id, U32*);
+    // WriteBCnt / ReadBCnt are "number of bytes plus 1" (the address byte), per spec.
+    using PfnI2CWriteReadRaw            = Status(EAPI_CALLTYPE*)(Id, U32 addr, void* wBuf, U32 writeBCnt, void* rBuf, U32 rBufLen, U32 readBCnt);
+    using PfnI2CReadTransfer            = Status(EAPI_CALLTYPE*)(Id, U32 addr, U32 cmd, void* buffer, U32 bufLen, U32 byteCnt);
+    using PfnI2CWriteTransfer           = Status(EAPI_CALLTYPE*)(Id, U32 addr, U32 cmd, void* buffer, U32 byteCnt);
+    using PfnI2CProbeDevice             = Status(EAPI_CALLTYPE*)(Id, U32 addr);
+    using PfnWDogGetCap                 = Status(EAPI_CALLTYPE*)(U32* maxDelay, U32* maxEventTimeout, U32* maxResetTimeout);
+    using PfnWDogStart                  = Status(EAPI_CALLTYPE*)(U32 delay, U32 eventTimeout, U32 resetTimeout);
+    using PfnWDogTrigger                = Status(EAPI_CALLTYPE*)();
+    using PfnWDogStop                   = Status(EAPI_CALLTYPE*)();
+    using PfnGPIOGetDirectionCaps       = Status(EAPI_CALLTYPE*)(Id, U32* inputs, U32* outputs);
+    using PfnGPIOGetDirection           = Status(EAPI_CALLTYPE*)(Id, U32 bitmask, U32* direction);
+    using PfnGPIOSetDirection           = Status(EAPI_CALLTYPE*)(Id, U32 bitmask, U32 direction);
+    using PfnGPIOGetLevel               = Status(EAPI_CALLTYPE*)(Id, U32 bitmask, U32* level);
+    using PfnGPIOSetLevel               = Status(EAPI_CALLTYPE*)(Id, U32 bitmask, U32 level);
 }
