@@ -55,6 +55,8 @@ namespace eapi
         bool IsLoaded() const noexcept { return m_module != nullptr; }
         std::wstring const& LoadedPath() const noexcept { return m_path; }
         Status InitStatus() const noexcept { return m_initStatus; }
+        // Comma-separated EAPI functions the DLL does not export (empty = all present).
+        std::wstring const& MissingFunctions() const noexcept { return m_missing; }
 
         static std::vector<std::wstring> const& DefaultDllNames();
 
@@ -63,6 +65,7 @@ namespace eapi
 
         HMODULE m_module{};
         std::wstring m_path;
+        std::wstring m_missing;
         Status m_initStatus{ EAPI_STATUS_NOT_INITIALIZED };
     };
 

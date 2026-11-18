@@ -552,6 +552,7 @@ namespace winrt::EapiGui::implementation
             caps.Style(hintStyle);
             caps.VerticalAlignment(VerticalAlignment::Center);
             caps.Text(!dirOk && !levelOk ? hstring(L"Error: " + eapi::StatusToString(pin.directionStatus))
+                      : !pin.capsKnown ? L"Capabilities not reported"
                       : pin.canInput && pin.canOutput ? L"Input / output"
                       : pin.canInput ? L"Input only" : L"Output only");
 

@@ -5,7 +5,7 @@
 // "Not supported" handling can be checked.
 //
 // Mock hardware: backlight 1 only, 1 KiB storage, GPIO bank 0 with pins 0-7
-// (0-3 input only, 4-7 input/output), I2C EEPROM (256 bytes) at 7-bit address
+// (0-3 input only, 4-7 input/output) and bank 1 with pins 32-35 (no caps, like Kontron), I2C EEPROM (256 bytes) at 7-bit address
 // 0x50 on the external bus, watchdog up to 65535 ms.
 
 #include <cstdint>
@@ -15,14 +15,13 @@ using Status = std::uint32_t;
 constexpr Status SUCCESS = 0, UNSUPPORTED = 0xFFFFFCFF, MORE_DATA = 0xFFFFF9FF, INVALID_PARAMETER = 0xFFFFFEFF,
                  INVALID_BLOCK_LENGTH = 0xFFFFFEFD, INVALID_DIRECTION = 0xFFFFFEFC, INVALID_BITMASK = 0xFFFFFEFB,
                  RUNNING = 0xFFFFFEFA, NOT_FOUND = 0xFFFFFBFF, ERROR_ = 0xFFFFF0FF;
-constexpr std::uint32_t BL_ON = 0, BL_OFF = 0xFFFFFFFF, GPIO_BANK0 = 0x10000, GPIO_IN = 0xFF, GPIO_OUT = 0xF0;
+constexpr std::uint32_t BL_ON = 0, BL_OFF = 0xFFFFFFFF, GPIO_BANK0 = 0x10000;
 constexpr std::uint32_t EEPROM_ADDR = 0x50 << 1; // EAPI-encoded 7-bit address
 
 #define EXPORT extern "C" __declspec(dllexport)
 
 static bool g_init = false;
 static std::uint32_t g_blEnable = BL_ON, g_blBright = 200;
-static std::uint32_t g_gpioDir = 0x0F, g_gpioLevel = 0x50; // 1 = input
 static std::uint8_t g_storage[1024];
 static std::uint8_t g_eeprom[256];
 static bool g_wdRunning = false;
@@ -69,7 +68,8 @@ EXPORT Status EApiBoardGetValue(std::uint32_t id, std::uint32_t* v)
     case 0x10000: *v = 0x02010017; return SUCCESS;            // driver 2.1.23
     case 0x10001: *v = 0x01030005; return SUCCESS;            // lib 1.3.5
     case 0x20000: *v = 2731 + 523; return SUCCESS;            // 52.3 °C
-    case 0x20002: *v = 2731 + 381; return SUCCESS;            // 38.1 °C
+    case 0x20001: *v = 426; return SUCCESS;                   // 42.6 °C, Kontron-style 0.1 °C
+    case 0x20002: *v = 2731 - 453; return SUCCESS;            // -45.3 °C, as in the PICMG DK emulation
     case 0x21004: *v = 1050; return SUCCESS;
     case 0x2100C: *v = 3312; return SUCCESS;
     case 0x21010: *v = 3021; return SUCCESS;
@@ -161,37 +161,49 @@ EXPORT Status EApiI2CWriteTransfer(std::uint32_t id, std::uint32_t addr, std::ui
 }
 // EApiI2CWriteReadRaw intentionally not exported.
 
-// ---- GPIO (bank 0 only) ----
+// ---- GPIO ----
+// Bank 0 reports its capabilities. Bank 1 (pins 32-35) behaves like the Kontron EAPI wrapper:
+// EApiGPIOGetDirectionCaps is unsupported, direct pin calls work.
+struct Bank { std::uint32_t pins, outCaps, dir, level; bool reportsCaps; };
+static Bank g_banks[] = { { 0xFF, 0xF0, 0x0F, 0x50, true }, { 0x0F, 0x0F, 0x00, 0x00, false } };
+
+static Bank* FindBank(std::uint32_t id) { return id - GPIO_BANK0 < 2 ? &g_banks[id - GPIO_BANK0] : nullptr; }
+
 EXPORT Status EApiGPIOGetDirectionCaps(std::uint32_t id, std::uint32_t* in, std::uint32_t* out)
 {
-    if (id != GPIO_BANK0) return UNSUPPORTED;
-    *in = GPIO_IN; *out = GPIO_OUT; return SUCCESS;
+    Bank* b = FindBank(id);
+    if (!b || !b->reportsCaps) return UNSUPPORTED;
+    *in = b->pins; *out = b->outCaps; return SUCCESS;
 }
 EXPORT Status EApiGPIOGetDirection(std::uint32_t id, std::uint32_t mask, std::uint32_t* dir)
 {
-    if (id != GPIO_BANK0) return UNSUPPORTED;
-    if (mask & ~GPIO_IN) return INVALID_BITMASK;
-    *dir = g_gpioDir & mask; return SUCCESS;
+    Bank* b = FindBank(id);
+    if (!b) return UNSUPPORTED;
+    if (!mask || (mask & ~b->pins)) return INVALID_BITMASK;
+    *dir = b->dir & mask; return SUCCESS;
 }
 EXPORT Status EApiGPIOSetDirection(std::uint32_t id, std::uint32_t mask, std::uint32_t dir)
 {
-    if (id != GPIO_BANK0) return UNSUPPORTED;
-    if (mask & ~GPIO_IN) return INVALID_BITMASK;
-    if (mask & ~dir & ~GPIO_OUT) return INVALID_DIRECTION; // output requested on an input-only pin
-    g_gpioDir = (g_gpioDir & ~mask) | (dir & mask); return SUCCESS;
+    Bank* b = FindBank(id);
+    if (!b) return UNSUPPORTED;
+    if (!mask || (mask & ~b->pins)) return INVALID_BITMASK;
+    if (mask & ~dir & ~b->outCaps) return INVALID_DIRECTION; // output requested on an input-only pin
+    b->dir = (b->dir & ~mask) | (dir & mask); return SUCCESS;
 }
 EXPORT Status EApiGPIOGetLevel(std::uint32_t id, std::uint32_t mask, std::uint32_t* level)
 {
-    if (id != GPIO_BANK0) return UNSUPPORTED;
-    if (mask & ~GPIO_IN) return INVALID_BITMASK;
-    *level = g_gpioLevel & mask; return SUCCESS;
+    Bank* b = FindBank(id);
+    if (!b) return UNSUPPORTED;
+    if (!mask || (mask & ~b->pins)) return INVALID_BITMASK;
+    *level = b->level & mask; return SUCCESS;
 }
 EXPORT Status EApiGPIOSetLevel(std::uint32_t id, std::uint32_t mask, std::uint32_t level)
 {
-    if (id != GPIO_BANK0) return UNSUPPORTED;
-    if (mask & ~GPIO_IN) return INVALID_BITMASK;
-    if (mask & g_gpioDir) return INVALID_DIRECTION; // pin is an input
-    g_gpioLevel = (g_gpioLevel & ~mask) | (level & mask); return SUCCESS;
+    Bank* b = FindBank(id);
+    if (!b) return UNSUPPORTED;
+    if (!mask || (mask & ~b->pins)) return INVALID_BITMASK;
+    if (mask & b->dir) return INVALID_DIRECTION; // pin is an input
+    b->level = (b->level & ~mask) | (level & mask); return SUCCESS;
 }
 
 // ---- Watchdog ----
