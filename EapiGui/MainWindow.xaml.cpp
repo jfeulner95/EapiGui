@@ -25,6 +25,26 @@ namespace
     }
 
     constexpr std::uint32_t MaxTransfer = 65536; // bytes per storage / I2C read in the GUI
+
+    constexpr wchar_t AppVersion[] = L"1.0.0"; // keep in sync with app.manifest
+    constexpr wchar_t EapiSpecVersion[] = L"PICMG EAPI R1.0";
+    constexpr wchar_t EapiSpecUrl[] = L"https://www.picmg.org/wp-content/uploads/COM_EAPI_R1_0.pdf";
+    // Same text as LICENSE in the repository root.
+    constexpr wchar_t LicenseText[] =
+        L"MIT License\n\n"
+        L"Copyright (c) 2026 Johannes Feulner\n\n"
+        L"Permission is hereby granted, free of charge, to any person obtaining a copy of this software and "
+        L"associated documentation files (the \"Software\"), to deal in the Software without restriction, including "
+        L"without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell "
+        L"copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the "
+        L"following conditions:\n\n"
+        L"The above copyright notice and this permission notice shall be included in all copies or substantial "
+        L"portions of the Software.\n\n"
+        L"THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT "
+        L"LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO "
+        L"EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER "
+        L"IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE "
+        L"USE OR OTHER DEALINGS IN THE SOFTWARE.";
 }
 
 namespace winrt::EapiGui::implementation
@@ -109,6 +129,65 @@ namespace winrt::EapiGui::implementation
             m_timer.Start();
         else
             m_timer.Stop();
+    }
+
+    winrt::fire_and_forget MainWindow::About_Click(IInspectable, RoutedEventArgs)
+    {
+        auto strongThis = get_strong();
+        auto line = [](hstring const& label, hstring const& value)
+        {
+            TextBlock text;
+            text.Text(label + L": " + value);
+            text.IsTextSelectionEnabled(true);
+            return text;
+        };
+
+        // The loaded DLL reports its own spec version; the overview has already read it.
+        std::wstring libSpec;
+        for (auto const& s : m_sections)
+            for (auto const& e : s.entries)
+                if (e.name == L"EAPI specification version")
+                    libSpec = e.value;
+
+        StackPanel content;
+        content.Spacing(6);
+        content.Children().Append(line(L"EapiGui version", AppVersion));
+        content.Children().Append(line(L"Supported EAPI specification", EapiSpecVersion));
+        HyperlinkButton specLink;
+        specLink.Content(box_value(L"Open the EAPI specification (PDF, picmg.org)"));
+        specLink.Padding({ 0, 0, 0, 0 });
+        specLink.Click({ this, &MainWindow::Spec_Click });
+        content.Children().Append(specLink);
+        content.Children().Append(line(L"Loaded EAPI library reports",
+                                       libSpec.empty() ? hstring(L"no library loaded") : hstring(L"EAPI " + libSpec)));
+
+        TextBlock license;
+        license.Text(LicenseText);
+        license.TextWrapping(TextWrapping::Wrap);
+        license.IsTextSelectionEnabled(true);
+        license.Style(FindStyle(L"HintTextStyle"));
+        ScrollViewer licenseScroll;
+        licenseScroll.Content(license);
+        licenseScroll.MaxHeight(220);
+        licenseScroll.Margin({ 0, 12, 0, 0 });
+        content.Children().Append(licenseScroll);
+
+        ContentDialog dialog;
+        dialog.XamlRoot(Content().XamlRoot());
+        dialog.Style(Application::Current().Resources().Lookup(box_value(L"DefaultContentDialogStyle")).as<Microsoft::UI::Xaml::Style>());
+        dialog.Title(box_value(L"About EapiGui"));
+        dialog.Content(content);
+        dialog.CloseButtonText(L"Close");
+        dialog.DefaultButton(ContentDialogButton::Close);
+        co_await dialog.ShowAsync();
+    }
+
+    void MainWindow::Spec_Click(IInspectable const&, RoutedEventArgs const&)
+    {
+        // ShellExecute instead of Launcher: works in unpackaged apps without package identity.
+        auto const result = reinterpret_cast<INT_PTR>(::ShellExecuteW(WindowHandle(), L"open", EapiSpecUrl, nullptr, nullptr, SW_SHOWNORMAL));
+        if (result <= 32)
+            ShowStatus(InfoBarSeverity::Error, L"Cannot open the EAPI specification", hstring(EapiSpecUrl));
     }
 
     void MainWindow::NavView_SelectionChanged(NavigationView const&, NavigationViewSelectionChangedEventArgs const& e)

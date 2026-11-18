@@ -24,6 +24,8 @@ namespace winrt::EapiGui::implementation
         void Exit_Click(IInspectable const&, RoutedEventArgs const&);
         void Refresh_Click(IInspectable const&, RoutedEventArgs const&);
         void AutoRefresh_Click(IInspectable const&, RoutedEventArgs const&);
+        winrt::fire_and_forget About_Click(IInspectable, RoutedEventArgs);
+        void Spec_Click(IInspectable const&, RoutedEventArgs const&);
         void NavView_SelectionChanged(Microsoft::UI::Xaml::Controls::NavigationView const&,
                                       Microsoft::UI::Xaml::Controls::NavigationViewSelectionChangedEventArgs const&);
 

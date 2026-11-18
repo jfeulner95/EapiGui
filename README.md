@@ -69,3 +69,10 @@ the mock. Run from the repository root after building the mock:
 cl /EHsc /std:c++20 /utf-8 /I EapiGui tools\SelfTest\SelfTest.cpp EapiGui\EapiLibrary.cpp EapiGui\EapiReader.cpp user32.lib /Fe:SelfTest.exe
 SelfTest.exe
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE). Version and license are also shown under **Help > About** (F1).
+
+The EAPI specification ([PICMG COM Express EAPI R1.0, PDF](https://www.picmg.org/wp-content/uploads/COM_EAPI_R1_0.pdf))
+is linked under **Help > EAPI Specification**; it is not part of this repository.
