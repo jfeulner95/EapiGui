@@ -1,7 +1,7 @@
 #pragma once
 // Runtime binding to the vendor's EAPI DLL (LoadLibrary + GetProcAddress).
-// Functions the DLL does not export stay nullptr and are reported as
-// "Not supported" by the reader, so the tool works with partial implementations.
+// Functions the DLL does not export stay nullptr; Call() reports them as
+// EAPI_STATUS_UNSUPPORTED, so the tool works with partial implementations.
 
 #include "EapiDefs.h"
 #include <string>
@@ -10,7 +10,36 @@
 
 namespace eapi
 {
-    class Library
+    // Every EAPI 1.0 function except EApiLibInitialize (called by Library::Load).
+    struct Functions
+    {
+        PfnLibUnInitialize           LibUnInitialize{};
+        PfnBoardGetStringA           BoardGetStringA{};
+        PfnBoardGetValue             BoardGetValue{};
+        PfnVgaGetBacklightEnable     VgaGetBacklightEnable{};
+        PfnVgaSetBacklightEnable     VgaSetBacklightEnable{};
+        PfnVgaGetBacklightBrightness VgaGetBacklightBrightness{};
+        PfnVgaSetBacklightBrightness VgaSetBacklightBrightness{};
+        PfnStorageCap                StorageCap{};
+        PfnStorageAreaRead           StorageAreaRead{};
+        PfnStorageAreaWrite          StorageAreaWrite{};
+        PfnI2CGetBusCap              I2CGetBusCap{};
+        PfnI2CWriteReadRaw           I2CWriteReadRaw{};
+        PfnI2CReadTransfer           I2CReadTransfer{};
+        PfnI2CWriteTransfer          I2CWriteTransfer{};
+        PfnI2CProbeDevice            I2CProbeDevice{};
+        PfnWDogGetCap                WDogGetCap{};
+        PfnWDogStart                 WDogStart{};
+        PfnWDogTrigger               WDogTrigger{};
+        PfnWDogStop                  WDogStop{};
+        PfnGPIOGetDirectionCaps      GPIOGetDirectionCaps{};
+        PfnGPIOGetDirection          GPIOGetDirection{};
+        PfnGPIOSetDirection          GPIOSetDirection{};
+        PfnGPIOGetLevel              GPIOGetLevel{};
+        PfnGPIOSetLevel              GPIOSetLevel{};
+    };
+
+    class Library : public Functions
     {
     public:
         Library() = default;
@@ -29,24 +58,18 @@ namespace eapi
 
         static std::vector<std::wstring> const& DefaultDllNames();
 
-        PfnBoardGetStringA           BoardGetStringA{};
-        PfnBoardGetValue             BoardGetValue{};
-        PfnVgaGetBacklightEnable     VgaGetBacklightEnable{};
-        PfnVgaGetBacklightBrightness VgaGetBacklightBrightness{};
-        PfnStorageCap                StorageCap{};
-        PfnI2CGetBusCap              I2CGetBusCap{};
-        PfnGPIOGetDirectionCaps      GPIOGetDirectionCaps{};
-        PfnGPIOGetDirection          GPIOGetDirection{};
-        PfnGPIOGetLevel              GPIOGetLevel{};
-        PfnWDogGetCap                WDogGetCap{};
-
     private:
         bool TryLoad(std::wstring const& path, std::wstring& error);
-        void ResetPointers() noexcept;
 
         HMODULE m_module{};
         std::wstring m_path;
         Status m_initStatus{ EAPI_STATUS_NOT_INITIALIZED };
-        PfnLibUnInitialize m_libUnInitialize{};
     };
+
+    // Calls an EAPI function pointer; a function the DLL does not export counts as unsupported.
+    template <typename Fn, typename... Args>
+    Status Call(Fn fn, Args... args)
+    {
+        return fn ? fn(args...) : EAPI_STATUS_UNSUPPORTED;
+    }
 }

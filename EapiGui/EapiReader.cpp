@@ -1,10 +1,10 @@
-#include "pch.h"
 #include "EapiReader.h"
 #include "EapiLibrary.h"
 
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <functional>
 
 namespace eapi
@@ -191,7 +191,9 @@ namespace eapi
                     std::uint32_t enable = 0;
                     Status const st = lib.VgaGetBacklightEnable(id, &enable);
                     s.entries.push_back(st == EAPI_STATUS_SUCCESS
-                        ? Ok(prefix + L" enabled", enable ? L"On" : L"Off", L"Raw: " + Hex(enable))
+                        ? Ok(prefix + L" enabled",
+                             enable == BACKLIGHT_SET_ON ? L"On" : enable == BACKLIGHT_SET_OFF ? L"Off" : L"Unknown",
+                             L"Raw: " + Hex(enable))
                         : Failed(prefix + L" enabled", st));
                 }
 
@@ -259,53 +261,26 @@ namespace eapi
             Section s{ L"GPIO", {} };
             if (!lib.GPIOGetDirectionCaps)
             {
-                s.entries.push_back(Missing(L"GPIO bank 0", "EApiGPIOGetDirectionCaps"));
+                s.entries.push_back(Missing(L"GPIO", "EApiGPIOGetDirectionCaps"));
                 return s;
             }
+            std::vector<GpioPin> pins;
+            Status const st = ReadGpio(lib, pins);
+            if (pins.empty())
+                s.entries.push_back(st == EAPI_STATUS_SUCCESS ? Ok(L"GPIO", L"No pins") : Failed(L"GPIO", st));
 
-            constexpr std::uint32_t maxBanks = 4;
-            for (std::uint32_t bank = 0; bank < maxBanks; ++bank)
+            for (auto const& pin : pins)
             {
-                Id const bankId = GpioBankId(bank);
-                std::wstring const bankName = Format(L"Bank %u", bank);
-
-                std::uint32_t inputs = 0, outputs = 0;
-                Status const st = lib.GPIOGetDirectionCaps(bankId, &inputs, &outputs);
-                if (st != EAPI_STATUS_SUCCESS)
+                std::wstring const name = Format(L"GPIO %u", pin.number);
+                if (pin.directionStatus != EAPI_STATUS_SUCCESS && pin.levelStatus != EAPI_STATUS_SUCCESS)
                 {
-                    // Bank 0 is always shown; further banks only when present.
-                    if (bank == 0)
-                        s.entries.push_back(Failed(bankName + L" capabilities", st));
-                    break;
-                }
-
-                std::uint32_t const mask = inputs | outputs;
-                s.entries.push_back(Ok(bankName + L" input capable", Hex(inputs)));
-                s.entries.push_back(Ok(bankName + L" output capable", Hex(outputs)));
-                if (mask == 0)
+                    s.entries.push_back(Failed(name, pin.directionStatus));
                     continue;
-
-                std::uint32_t direction = 0, level = 0;
-                Status dirSt = lib.GPIOGetDirection ? lib.GPIOGetDirection(bankId, mask, &direction) : EAPI_STATUS_UNSUPPORTED;
-                Status lvlSt = lib.GPIOGetLevel ? lib.GPIOGetLevel(bankId, mask, &level) : EAPI_STATUS_UNSUPPORTED;
-
-                for (std::uint32_t pin = 0; pin < 32; ++pin)
-                {
-                    std::uint32_t const bit = 1u << pin;
-                    if (!(mask & bit))
-                        continue;
-
-                    std::wstring const pinName = Format(L"GPIO %u", bank * 32 + pin);
-                    if (dirSt != EAPI_STATUS_SUCCESS && lvlSt != EAPI_STATUS_SUCCESS)
-                    {
-                        s.entries.push_back(Failed(pinName, dirSt));
-                        continue;
-                    }
-                    // EAPI: direction bit 1 = input, 0 = output.
-                    std::wstring const dir = dirSt == EAPI_STATUS_SUCCESS ? ((direction & bit) ? L"Input" : L"Output") : L"Direction ?";
-                    std::wstring const lvl = lvlSt == EAPI_STATUS_SUCCESS ? ((level & bit) ? L"High" : L"Low") : L"Level ?";
-                    s.entries.push_back(Ok(pinName, dir + L", " + lvl));
                 }
+                std::wstring const dir = pin.directionStatus == EAPI_STATUS_SUCCESS ? (pin.isInput ? L"Input" : L"Output") : L"Direction ?";
+                std::wstring const lvl = pin.levelStatus == EAPI_STATUS_SUCCESS ? (pin.isHigh ? L"High" : L"Low") : L"Level ?";
+                wchar_t const* caps = pin.canInput && pin.canOutput ? L"input/output" : pin.canInput ? L"input only" : L"output only";
+                s.entries.push_back(Ok(name, dir + L", " + lvl, Format(L"Capability: %s, ID 0x%X, mask 0x%08X", caps, pin.id, pin.bit)));
             }
             return s;
         }
@@ -384,6 +359,108 @@ namespace eapi
             for (auto const& e : section.entries)
                 text += e.name + L": " + e.value + L"\r\n";
             text += L"\r\n";
+        }
+        return text;
+    }
+
+    Status ReadGpio(Library const& lib, std::vector<GpioPin>& pins)
+    {
+        pins.clear();
+        auto addId = [&](Id id, std::uint32_t firstNumber)
+        {
+            std::uint32_t in = 0, out = 0;
+            Status const st = Call(lib.GPIOGetDirectionCaps, id, &in, &out);
+            if (st != EAPI_STATUS_SUCCESS)
+                return st;
+            std::uint32_t const mask = in | out;
+            std::uint32_t dir = 0, lvl = 0;
+            Status const dirSt = mask ? Call(lib.GPIOGetDirection, id, mask, &dir) : st;
+            Status const lvlSt = mask ? Call(lib.GPIOGetLevel, id, mask, &lvl) : st;
+            for (std::uint32_t pin = 0; pin < 32; ++pin)
+            {
+                std::uint32_t const bit = 1u << pin;
+                if (mask & bit)
+                    pins.push_back({ id, bit, firstNumber + pin, (in & bit) != 0, (out & bit) != 0,
+                                     dirSt, lvlSt, (dir & bit) != 0, (lvl & bit) != 0 });
+            }
+            return st;
+        };
+
+        constexpr std::uint32_t maxBanks = 4;
+        Status const first = addId(GpioBankId(0), 0);
+        if (first == EAPI_STATUS_SUCCESS)
+        {
+            for (std::uint32_t bank = 1; bank < maxBanks && addId(GpioBankId(bank), bank * 32) == EAPI_STATUS_SUCCESS; ++bank) {}
+            return first;
+        }
+        for (Id pin = 0; pin < 16; ++pin)
+            addId(pin, pin);
+        return pins.empty() ? first : EAPI_STATUS_SUCCESS;
+    }
+
+    std::optional<std::uint32_t> ParseHex32(std::wstring_view text)
+    {
+        while (!text.empty() && iswspace(text.front())) text.remove_prefix(1);
+        while (!text.empty() && iswspace(text.back())) text.remove_suffix(1);
+        if (text.size() > 2 && text[0] == L'0' && (text[1] == L'x' || text[1] == L'X'))
+            text.remove_prefix(2);
+        if (text.empty() || text.size() > 8)
+            return std::nullopt;
+        std::uint32_t value = 0;
+        for (wchar_t c : text)
+        {
+            if (!iswxdigit(c))
+                return std::nullopt;
+            value = (value << 4) | static_cast<std::uint32_t>(iswdigit(c) ? c - L'0' : towlower(c) - L'a' + 10);
+        }
+        return value;
+    }
+
+    std::optional<std::vector<std::uint8_t>> ParseHexBytes(std::wstring_view text)
+    {
+        auto isSep = [](wchar_t c) { return iswspace(c) || c == L','; };
+        std::vector<std::uint8_t> bytes;
+        size_t pos = 0;
+        while (pos < text.size())
+        {
+            if (isSep(text[pos])) { ++pos; continue; }
+            size_t end = pos;
+            while (end < text.size() && !isSep(text[end])) ++end;
+            std::wstring_view token = text.substr(pos, end - pos);
+            pos = end;
+            if (token.size() > 2 && token[0] == L'0' && (token[1] == L'x' || token[1] == L'X'))
+                token.remove_prefix(2);
+            if (token.size() > 1 && token.size() % 2)
+                return std::nullopt;
+            for (size_t i = 0; i < token.size(); i += 2)
+            {
+                auto const byte = ParseHex32(token.substr(i, 2));
+                if (!byte)
+                    return std::nullopt;
+                bytes.push_back(static_cast<std::uint8_t>(*byte));
+            }
+        }
+        return bytes;
+    }
+
+    std::wstring HexDump(std::vector<std::uint8_t> const& data, std::uint32_t baseOffset)
+    {
+        std::wstring text;
+        for (size_t line = 0; line < data.size(); line += 16)
+        {
+            text += Format(L"%08X  ", static_cast<std::uint32_t>(baseOffset + line));
+            std::wstring ascii;
+            for (size_t i = line; i < line + 16; ++i)
+            {
+                if (i < data.size())
+                {
+                    text += Format(L"%02X ", data[i]);
+                    ascii += data[i] >= 0x20 && data[i] < 0x7F ? static_cast<wchar_t>(data[i]) : L'.';
+                }
+                else
+                    text += L"   ";
+            }
+            text += L" |" + ascii + L"|\r\n";
         }
         return text;
     }
