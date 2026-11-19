@@ -67,8 +67,14 @@ namespace eapi
         std::wstring FmtTemperature(std::uint32_t v)
         {
             // EAPI encodes temperatures in 0.1 Kelvin (EAPI_KELVINS_OFFSET = 2731).
-            double const celsius = (static_cast<double>(v) - 2731.0) / 10.0;
-            return Format(L"%.1f °C", celsius);
+            // shortcut: the Kontron EAPI wrapper sends 0.1 °C instead. Values below 1500 are taken as
+            // signed 0.1 °C (<= 150 °C); in Kelvin encoding they would be below -123 °C. The PICMG DK
+            // emulation reports -45.3 °C (raw 2278), so the cut must stay well below that.
+            // Upgrade to a per-vendor setting if a library breaks either range.
+            auto const signedValue = static_cast<std::int32_t>(v);
+            if (signedValue < 1500)
+                return Format(L"%.1f °C (vendor sends 0.1 °C, not 0.1 K)", signedValue / 10.0);
+            return Format(L"%.1f °C", (signedValue - 2731) / 10.0);
         }
 
         std::wstring FmtVoltage(std::uint32_t v) { return Format(L"%.3f V", v / 1000.0); }
@@ -139,6 +145,8 @@ namespace eapi
             s.entries.push_back(ReadValue(lib, ID_GET_EAPI_SPEC_VERSION, L"EAPI specification version", FmtSpecVersion));
             s.entries.push_back(ReadValue(lib, ID_BOARD_LIB_VERSION_VAL, L"Library version", FmtVersion));
             s.entries.push_back(ReadValue(lib, ID_BOARD_DRIVER_VERSION_VAL, L"Driver version", FmtVersion));
+            s.entries.push_back(Ok(L"Functions not exported",
+                lib.MissingFunctions().empty() ? std::wstring(L"None (all EAPI 1.0 functions present)") : lib.MissingFunctions()));
             return s;
         }
 
@@ -267,7 +275,20 @@ namespace eapi
             std::vector<GpioPin> pins;
             Status const st = ReadGpio(lib, pins);
             if (pins.empty())
+            {
                 s.entries.push_back(st == EAPI_STATUS_SUCCESS ? Ok(L"GPIO", L"No pins") : Failed(L"GPIO", st));
+                // Diagnostics: some wrappers lack the capability query but still answer direct pin calls.
+                struct Probe { Id id; wchar_t const* name; };
+                for (Probe const probe : { Probe{ GpioBankId(0), L"bank 0" }, Probe{ 0, L"pin 0" } })
+                {
+                    std::uint32_t dir = 0, lvl = 0;
+                    Status const dirSt = Call(lib.GPIOGetDirection, probe.id, 1u, &dir);
+                    Status const lvlSt = Call(lib.GPIOGetLevel, probe.id, 1u, &lvl);
+                    s.entries.push_back(Ok(std::wstring(L"Probe ") + probe.name + L" (mask 0x1)",
+                        L"GetDirection: " + (dirSt == EAPI_STATUS_SUCCESS ? Hex(dir) : StatusToString(dirSt)) +
+                        L", GetLevel: " + (lvlSt == EAPI_STATUS_SUCCESS ? Hex(lvl) : StatusToString(lvlSt))));
+                }
+            }
 
             for (auto const& pin : pins)
             {
@@ -279,7 +300,8 @@ namespace eapi
                 }
                 std::wstring const dir = pin.directionStatus == EAPI_STATUS_SUCCESS ? (pin.isInput ? L"Input" : L"Output") : L"Direction ?";
                 std::wstring const lvl = pin.levelStatus == EAPI_STATUS_SUCCESS ? (pin.isHigh ? L"High" : L"Low") : L"Level ?";
-                wchar_t const* caps = pin.canInput && pin.canOutput ? L"input/output" : pin.canInput ? L"input only" : L"output only";
+                wchar_t const* caps = !pin.capsKnown ? L"not reported by library"
+                                    : pin.canInput && pin.canOutput ? L"input/output" : pin.canInput ? L"input only" : L"output only";
                 s.entries.push_back(Ok(name, dir + L", " + lvl, Format(L"Capability: %s, ID 0x%X, mask 0x%08X", caps, pin.id, pin.bit)));
             }
             return s;
@@ -357,7 +379,7 @@ namespace eapi
         {
             text += L"[" + section.title + L"]\r\n";
             for (auto const& e : section.entries)
-                text += e.name + L": " + e.value + L"\r\n";
+                text += e.name + L": " + e.value + (e.detail.empty() ? L"" : L"  [" + e.detail + L"]") + L"\r\n";
             text += L"\r\n";
         }
         return text;
@@ -366,35 +388,52 @@ namespace eapi
     Status ReadGpio(Library const& lib, std::vector<GpioPin>& pins)
     {
         pins.clear();
-        auto addId = [&](Id id, std::uint32_t firstNumber)
+        // pinCount: 32 for a bank ID, 1 for a single-pin ID (bit 0 = EAPI_GPIO_BITMASK_SELECT).
+        auto addId = [&](Id id, std::uint32_t firstNumber, std::uint32_t pinCount)
         {
             std::uint32_t in = 0, out = 0;
-            Status const st = Call(lib.GPIOGetDirectionCaps, id, &in, &out);
-            if (st != EAPI_STATUS_SUCCESS)
-                return st;
+            Status st = Call(lib.GPIOGetDirectionCaps, id, &in, &out);
+            bool const capsKnown = st == EAPI_STATUS_SUCCESS;
+            if (!capsKnown)
+            {
+                // Some wrappers (e.g. Kontron) do not report capabilities but answer direct pin calls:
+                // a pin exists if GetDirection succeeds for it; its capabilities stay unknown.
+                for (std::uint32_t pin = 0; pin < pinCount; ++pin)
+                {
+                    std::uint32_t ignored = 0;
+                    if (Call(lib.GPIOGetDirection, id, 1u << pin, &ignored) == EAPI_STATUS_SUCCESS)
+                        in |= 1u << pin;
+                }
+                if (!in)
+                    return st;
+                out = in;
+                st = EAPI_STATUS_SUCCESS;
+            }
             std::uint32_t const mask = in | out;
-            std::uint32_t dir = 0, lvl = 0;
-            Status const dirSt = mask ? Call(lib.GPIOGetDirection, id, mask, &dir) : st;
-            Status const lvlSt = mask ? Call(lib.GPIOGetLevel, id, mask, &lvl) : st;
             for (std::uint32_t pin = 0; pin < 32; ++pin)
             {
                 std::uint32_t const bit = 1u << pin;
-                if (mask & bit)
-                    pins.push_back({ id, bit, firstNumber + pin, (in & bit) != 0, (out & bit) != 0,
-                                     dirSt, lvlSt, (dir & bit) != 0, (lvl & bit) != 0 });
+                if (!(mask & bit))
+                    continue;
+                // One pin per call: some wrappers reject multi-bit masks.
+                std::uint32_t dir = 0, lvl = 0;
+                Status const dirSt = Call(lib.GPIOGetDirection, id, bit, &dir);
+                Status const lvlSt = Call(lib.GPIOGetLevel, id, bit, &lvl);
+                pins.push_back({ id, bit, firstNumber + pin, capsKnown, (in & bit) != 0, (out & bit) != 0,
+                                 dirSt, lvlSt, (dir & bit) != 0, (lvl & bit) != 0 });
             }
             return st;
         };
 
         constexpr std::uint32_t maxBanks = 4;
-        Status const first = addId(GpioBankId(0), 0);
+        Status const first = addId(GpioBankId(0), 0, 32);
         if (first == EAPI_STATUS_SUCCESS)
         {
-            for (std::uint32_t bank = 1; bank < maxBanks && addId(GpioBankId(bank), bank * 32) == EAPI_STATUS_SUCCESS; ++bank) {}
+            for (std::uint32_t bank = 1; bank < maxBanks && addId(GpioBankId(bank), bank * 32, 32) == EAPI_STATUS_SUCCESS; ++bank) {}
             return first;
         }
         for (Id pin = 0; pin < 16; ++pin)
-            addId(pin, pin);
+            addId(pin, pin, 1);
         return pins.empty() ? first : EAPI_STATUS_SUCCESS;
     }
 

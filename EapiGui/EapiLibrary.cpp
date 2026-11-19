@@ -98,7 +98,9 @@ namespace eapi
         m_module = module;
         m_path = ModulePath(module);
         m_initStatus = status;
-#define EAPI_RESOLVE(name) name = Resolve<decltype(name)>(module, "EApi" #name)
+        m_missing.clear();
+#define EAPI_RESOLVE(name) \
+        if (!(name = Resolve<decltype(name)>(module, "EApi" #name))) m_missing += (m_missing.empty() ? L"" : L", ") + std::wstring(L"EApi" #name)
         EAPI_RESOLVE(LibUnInitialize);
         EAPI_RESOLVE(BoardGetStringA);
         EAPI_RESOLVE(BoardGetValue);
@@ -137,6 +139,7 @@ namespace eapi
         ::FreeLibrary(m_module);
         m_module = nullptr;
         m_path.clear();
+        m_missing.clear();
         m_initStatus = EAPI_STATUS_NOT_INITIALIZED;
         static_cast<Functions&>(*this) = {};
     }

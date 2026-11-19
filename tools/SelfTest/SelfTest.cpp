@@ -44,6 +44,8 @@ int main()
     Library lib;
     std::wstring error;
     assert(lib.Load(L"EApi.dll", error));
+    assert(lib.MissingFunctions() == L"EApiI2CWriteReadRaw");
+    assert(ToText(ReadAll(lib)).find(L"Boot counter: 4711  [Raw: 0x00001267]") != std::wstring::npos);
     std::uint32_t v = 0, w = 0;
 
     assert(Call(lib.VgaSetBacklightEnable, ID_BACKLIGHT_1, BACKLIGHT_SET_OFF) == EAPI_STATUS_SUCCESS);
@@ -67,12 +69,22 @@ int main()
     assert(Call(lib.I2CWriteReadRaw, ID_I2C_EXTERNAL, eeprom, data.data(), 5u, back.data(), 4u, 5u) == EAPI_STATUS_UNSUPPORTED);
 
     std::vector<GpioPin> pins;
-    assert(ReadGpio(lib, pins) == EAPI_STATUS_SUCCESS && pins.size() == 8);
-    assert(pins[4].number == 4 && pins[4].canOutput && !pins[4].isInput);
+    assert(ReadGpio(lib, pins) == EAPI_STATUS_SUCCESS && pins.size() == 12);
+    assert(pins[4].number == 4 && pins[4].capsKnown && pins[4].canOutput && !pins[4].isInput);
+    // Bank 1 has no capability query (Kontron-style): pins found by probing, both directions assumed.
+    assert(pins[8].number == 32 && !pins[8].capsKnown && pins[8].canInput && pins[8].canOutput);
+    assert(pins[11].number == 35 && pins[11].directionStatus == EAPI_STATUS_SUCCESS && !pins[11].isInput);
+    assert(Call(lib.GPIOSetLevel, pins[8].id, pins[8].bit, pins[8].bit) == EAPI_STATUS_SUCCESS);
     assert(Call(lib.GPIOSetLevel, pins[4].id, pins[4].bit, pins[4].bit) == EAPI_STATUS_SUCCESS);
     assert(Call(lib.GPIOSetDirection, pins[0].id, pins[0].bit, 0u) == EAPI_STATUS_INVALID_DIRECTION); // input only
     assert(Call(lib.GPIOSetDirection, pins[5].id, pins[5].bit, pins[5].bit) == EAPI_STATUS_SUCCESS);  // -> input
-    assert(ReadGpio(lib, pins) == EAPI_STATUS_SUCCESS && pins[4].isHigh && pins[5].isInput);
+    assert(ReadGpio(lib, pins) == EAPI_STATUS_SUCCESS && pins[4].isHigh && pins[5].isInput && pins[8].isHigh);
+
+    // Temperatures: spec 0.1 K, and Kontron's 0.1 °C.
+    auto const all = ReadAll(lib);
+    assert(ValueOf(all, L"CPU temperature") == L"52.3 °C");
+    assert(ValueOf(all, L"Chipset temperature") == L"42.6 °C (vendor sends 0.1 °C, not 0.1 K)");
+    assert(ValueOf(all, L"System temperature") == L"-45.3 °C");
 
     assert(Call(lib.WDogGetCap, &v, &w, &v) == EAPI_STATUS_SUCCESS);
     assert(Call(lib.WDogStart, 0u, 0u, 1000u) == EAPI_STATUS_SUCCESS);

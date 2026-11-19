@@ -41,6 +41,7 @@ namespace eapi
         Id id;              // bank ID or single-pin ID
         std::uint32_t bit;  // bitmask selecting this pin within `id`
         std::uint32_t number;
+        bool capsKnown;     // false: library does not report capabilities, both directions assumed
         bool canInput, canOutput;
         Status directionStatus, levelStatus;
         bool isInput, isHigh;
